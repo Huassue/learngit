@@ -10,8 +10,9 @@ from switchyard.lib.userlib import *
 from collections import *
 from ipaddress import *
 
-ForwardItem = namedtuple('ForwardItem', ['ip', 'next_hop', 'intf'])
-ARPSendInfo = namedtuple('ARPSendInfo', ['send_time', 'remain_times', 'wait_packs', 'intf'])
+#命名元组
+ForwardItem = namedtuple('ForwardItem', ['ip', 'next_hop', 'intf'])     #转发表项
+ARPSendInfo = namedtuple('ARPSendInfo', ['send_time', 'remain_times', 'wait_packs', 'intf'])  #存储ARP发送信息
 
 class Node:
     def __init__(self, key, value):
