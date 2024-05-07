@@ -29,7 +29,7 @@ class Node:
         self.next.prev = self.prev
         self.prev.next = self.next
 
-class DictQueue:
+class NodeQueue:
     def __init__(self):
         self.node = Node(None, None)
         self.map = {}
@@ -88,7 +88,7 @@ class Router(object):
         self.net = net
         self.arp_table = {}    #ARP表
         self.forward_table = ForwardTable()    #转发表
-        self.arp_send = DictQueue()        #ARP发送队列
+        self.arp_send = NodeQueue()        #ARP发送队列
         self.build_forward_table()
 
     #构建转发表
@@ -112,6 +112,7 @@ class Router(object):
             #收到的ARP消息中的发送者IP地址已经在ARP表中，但是对应的MAC地址与发送者MAC地址不同
             self.arp_table[arp.senderprotoaddr] = arp.senderhwaddr    #更新ARP表中对应的条目
             log_info(f'Update ARP Table: {self.arp_table}')
+            
         if self.is_ip_in_router(arp.targetprotoaddr):
             if arp.operation == ArpOperation.Request:
                 #是ARP请求
@@ -132,9 +133,10 @@ class Router(object):
         packet[IPv4].ttl -= 1    #将 IP 报头中的 TTL 字段递减 1
         forward =  None if self.is_ip_in_router(ip.dst) else self.forward_table.search(ip.dst)
         #数据包是针对路由器本身的（即目标地址在路由器的接口中），则只需丢弃/忽略该数据包
-        #否则，从转发表中查找下一跳MAC地址
+        #否则，使用最长前缀匹配 将数据包中的目标地址应与转发表匹配
         if forward is not None:
             log_info(f"forward table hit {forward}")
+            #从转发表中查找下一跳MAC地址
             next_hop_ip = ip.dst if forward.next_hop == IPv4Address('0.0.0.0') else forward.next_hop
             next_hop = self.arp_table.get(next_hop_ip)
             packet[Ethernet].src = forward.intf.ethaddr    #根据转发表中的信息更新数据包的源 MAC 地址，
@@ -154,19 +156,23 @@ class Router(object):
 
     def handle_packet(self, recv: switchyard.llnetbase.ReceivedPacket):
         _, ifaceName, packet = recv
-        arp = packet.get_header(Arp)    
-        #检查数据包是否是 ARP 数据包
-        if arp is not None:
+        
+        vlan = packet.get_header(Vlan)
+        arp = packet.get_header(Arp)
+        ip = packet.get_header(IPv4)   
+        #检查数据包是什么
+        if vlan:
+            log_info(f"VLAN ARP packet detected.")
+            return 
+        elif arp:
             log_info(f"receive a arp packet {ifaceName} {arp}")
             self.handle_arp(arp, self.net.port_by_name(ifaceName))
-        else:
-            ip = packet.get_header(IPv4)    #是否是 IPv4 数据包
-            if ip is not None:
-                log_info(f"receive a ip packet {ifaceName} {ip}")
-                self.handle_ip(ip, packet)
+        elif ip:
+            log_info(f"receive a ip packet {ifaceName} {ip}")
+            self.handle_ip(ip, packet)
 
     #定时重新发送 ARP 请求
-    def resend_arp(self):
+    def resend_arp(self):                                                                                                                                                                                                  
         while self.arp_send.peek() and time.time() - self.arp_send.peek().value.send_time >= 1:
             #循环检查 ARP 发送队列中是否有需要重新发送的 ARP 请求，并检查上次发送时间距离当前时间是否超过了1秒
             node = self.arp_send.pop()
